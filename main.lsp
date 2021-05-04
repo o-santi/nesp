@@ -27,12 +27,13 @@
   (and (>= first second)
        (<= first third)))
 
-(defun read-memory (address)
+(defun read-memory (bus address)
+  (mapper->cpuRead (mapper))
   (cond
     ((between address 0 #x1FFF) (aref (bus-ram bus) (logand address #x07FF)))
     ((between address #x2000 #x3FFF) (aref (bus-ppu-bus bus) (logand address #x0007)))))
 
-(defun write-memory (address data)
+(defun write-memory (bus address data)
    (cond 
     ((between address 0 #x1FFF) (setf (aref (bus-ram bus) (logand address #x07FF)) data))
     ((between address #x2000 #x3FFF) (setf (aref (bus-ppu-bus bus) (logand address #x07FF)) data))))

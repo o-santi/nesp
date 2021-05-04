@@ -1,7 +1,8 @@
 (in-package :cl-user)
 
+(load "mapper.lsp")
 (defpackage :binary-parser
-  (:use :common-lisp)
+  (:use :common-lisp :mapper-creator)
   (:export :cartridge
            :with-gensyms
 	   :define-binary-class
@@ -92,6 +93,9 @@
 (defun get-mapper-id (header)
   (logior (ash (ash (mapper2 header) -4) 4) (ash (mapper1 header) -4)))
 
+(defun create-mapper (id)
+  (let ((mapper-string (make-symbol (concatenate 'string "mapper-" (write-to-string id)))))
+    (make-instance mapper-string)))
 
 (defun parse-cartridge (filename)
   (with-open-file (filestream filename :element-type 'u8)

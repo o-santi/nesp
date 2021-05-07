@@ -1,15 +1,3 @@
-(in-package :cl-user)
-
-(load "mapper.lsp")
-(defpackage :binary-parser
-  (:use :common-lisp :mapper-creator)
-  (:export :cartridge
-           :with-gensyms
-	   :define-binary-class
-	   :read-value
-	   :cartridge-header
-	   :parse-cartridge))
-
 (deftype u8 () '(unsigned-byte 8))
 
 (defun bytememory (size)
@@ -17,7 +5,7 @@
 
 (defstruct cartridge
   filename
-  (mapper-id 0 :type u8)
+  mapper 
   (prog-banks 0 :type u8)
   (char-banks 0 :type u8) 
   (v-prog-mem (make-array 0 :fill-pointer 0 :adjustable t))
@@ -94,13 +82,13 @@
   (logior (ash (ash (mapper2 header) -4) 4) (ash (mapper1 header) -4)))
 
 (defun create-mapper (id)
-  (let ((mapper-string (make-symbol (concatenate 'string "mapper-" (write-to-string id)))))
+  (let ((mapper-string (make-symbol (concatenate 'string "mapper-" (format nil "~3,'0D" id)))))
     (make-instance mapper-string)))
 
 (defun parse-cartridge (filename)
   (with-open-file (filestream filename :element-type 'u8)
     (let* ((header (read-value 'cartridge-header filestream))
-	   ;(mapper-id (get-mapper-id header))
+					;(mapper-id (get-mapper-id header))
 	   (cartridge (make-cartridge))
 	   (prg-mem (* 16384 (bit-vector->integer (pgr-rom-size header))))
 	   (chr-mem (* 8192 (bit-vector->integer (chr-rom-size header)))))
@@ -114,5 +102,26 @@
       (adjust-array (cartridge-v-prog-mem cartridge) chr-mem)
       ;; read into it
       (setf (cartridge-v-prog-mem cartridge) (read-value 'u8 filestream :length chr-mem))
+      (setf (cartridge-mapper cartridge) (create-mapper (get-mapper-id (header))))
+      
     cartridge)))
 
+(defun cartridge-cpuRead (cartridge addr)
+  (let ((new-addr (mapper-cpuRead (cartridge-mapper cartridge) addr)))
+    (when (new-addr)
+      (aref (cartridge-v-prog-mem cartridge) new-addr))))
+      
+(defun cartridge-cpuWrite (cartridge addr data)
+  (let ((new-addr (mapper-cpuWrite (cartridge-mapper cartridge) addr)))
+    (when (new-addr)
+      (setf (aref (cartridge-v-prog-mem cartridge) new-addr) data))))
+
+(defun cartridge-ppuRead (cartridge addr)
+  (let ((new-addr (mapper-ppuRead (cartridge-mapper cartridge) addr)))
+    (when (new-addr)
+      (aref (cartridge-v-char-mem cartridge) new-addr)))
+
+(defun cartridge-ppuWrite (cartridge addr data)
+  (let ((new-addr (mapper-ppuWrite (cartridge-mapper cartridge) addr)))
+    (when (new-addr)
+      (setf (aref (cartridge-v-char-mem cartridge) new-addr) data)))

@@ -1,18 +1,9 @@
-(defparameter *ram* (bytememory 2048)
-  "The ram used by NES cpu.")
-
-(defparameter *ppu-bus* (bytememory 2048)
-  "The ram used by NES cpu.")
-	   
 (defstruct bus
   (cpu (6502:make-cpu))
   (ram (bytememory 2048))
   (ppu (make-ppu))
-  cartridge)
-
-(defun between (first second third)
-  (and (>= first second)
-       (<= first third)))
+  cartridge
+  (clock-counter 0))
 
 (defun read-memory (bus address)
   (cond
@@ -24,10 +15,18 @@
     ((between address 0 #x1FFF) (setf (aref (bus-ram bus) (logand address #x07FF)) data))
     ((between address #x2000 #x3FFF) (setf (aref (bus-ppu-bus bus) (logand address #x07FF)) data))))
 
+(defmethod clock ((bus obj))
+  (clock (bus-ppu obj))
+  (when (eq (mod (bus-clock-counter obj) 3) 0)
+    (clock (bus-cpu obj)))
+  (+1 (bus-clock-counter obj))
+  (when (ppu-nmi (bus-ppu obj))
+    (setf (ppu-nmi (bus-ppu obj)) nil)
+    (cl-6502:nmi (bus-cpu obj))
 
-(defun clock (bus)) ;; ToDo : DEFINE
+  )
 
 (defun reset (bus)
-  (reset *cpu*))
+  (reset (bus-cpu bus))
 
 

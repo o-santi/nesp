@@ -8,8 +8,9 @@
   :serial t
   :depends-on (#:cl-6502)
   :components ((:file "package")
-               (:file "nes")
+	       (:file "src/utils")
 	       (:file "src/mapper")
 	       (:file "src/cartridge")
 	       (:file "src/ppu")
-	       (:file "src/bus"))
+	       (:file "src/bus")
+               (:file "nes")))

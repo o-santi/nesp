@@ -7,6 +7,8 @@
 ;; maybe a parent class and every type derives from it
 ;; do not know yet, will decide later
 
+(in-package #:nes)
+
 (defclass mapper ()
   ((id :accessor id)
    (pgr-banks :accessor pgr-banks)
@@ -15,23 +17,28 @@
 (defclass mapper-000 (mapper)
   ())
 
-(defgeneric map-read (mapper addr obj)
+(defgeneric map-read (map addr obj)
   (:documentation "Map addr to read inside obj"))
 
-(defgeneric map-write (mmaper addr obj)
+(defgeneric map-write (map addr obj)
   (:documentation "Map addr to write data at addr inside obj"))
 
-(defmethod map-read ((mapper mapper-000) addr (type obj (eql cl-6502:cpu)))
+(defmethod map-read ((map mapper-000) addr (obj (eql :cpu)))
    (when (between addr #x8000 #xFFFF)
-     (logiand addr (if (> (pgr-banks obj) 1) #x7FFF #x3FFF))))
+     (logand addr (if (> (pgr-banks map) 1) #x7FFF #x3FFF))))
 
-(defmethod map-read ((mapper mapper-000) addr (type obj (eql ppu)))
+(defmethod map-read ((map mapper-000) addr (obj (eql :ppu)))
   (when (between addr #x0000 #x1FFF)
     addr))
 
-(defmethod map-write ((mapper mapper-000) addr (type obj (eql cl-6502:cpu)))
-  (when (between addr #x0000 #x1FFF)
+(defmethod map-write ((map mapper-000) addr (obj (eql :cpu)))
+  (when (between addr #x8000 #xFFFF)
+     (logand addr (if (> (pgr-banks map) 1) #x7FFF #x3FFF))))
+
+(defmethod map-write ((map mapper-000) addr (obj (eql :ppu)))
+  (when (and (between addr #x0000 #x1FFF)
+	     (eql (chr-banks map) 0))
     addr))
 
-(defmethod map-write ((mapper mapper-000) addr (type objx (eql ppu)))
+(defmethod reset-component ((obj mapper-000))
   '())

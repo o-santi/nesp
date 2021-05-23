@@ -4,35 +4,27 @@
 ;; i will also define some multi-purpose generic functions here
 ;; and their respective definitions will be given in each file
 
+(in-package #:nes)
+
 (deftype u1 () '(unsigned-byte 1))
 (deftype u8 () '(unsigned-byte 8))
 (deftype u16 () '(unsigned-byte 16))
 
+;(declaim (type (simple-vector 0) *pixels*))
+(defparameter *pixels* (make-array 0 :element-type 'list :adjustable t :fill-pointer 0)
+  "Array that holds pixel-setting functions")
+
 (defgeneric read-value (type stream &key)
   (:documentation "Read a value of the given type from the stream."))
 
-(defgeneric read-memory (obj addr from &key)
-  (:documentation "Read a value at addr from from and returns to reader"))
+(defgeneric reset-component (obj)
+  (:documentation "Resets an obj"))
 
-(defgeneric write-memory (obj addr data at &key)
-  (:documentation "Write value data at addr from obj"))
-
-(defgeneric byte->reg (obj data)
-  (:documentation "Dump byteword into register object"))
-
-(defgeneric reg->byte (obj)
-  (:documentation "Dump register into byteword"))
-
-(defgeneric show-reg (obj)
-  (:documentation "Show bit values inside register"))
-
-(defgeneric clock (obj)
-  (:documentation "Clocks an obj"))
-
-(defsubst bytememory (size)
+(defun bytememory (size)
   (make-array size :element-type 'u8 :initial-element 0))
 
-(defsubst between (first second third)
+(declaim (inline between))
+(defun between (first second third)
   (and (>= first second)
        (<= first third)))
 
@@ -40,9 +32,20 @@
   `(let ,(loop for n in names collect `(,n (gensym)))
      ,@body))
 
-(defsubst as-keyword (sym) (intern (string sym) :keyword))
+(defmacro once-only ((&rest names) &body body)
+  (let ((gensyms (loop for n in names collect (gensym))))
+    `(let (,@(loop for g in gensyms collect `(,g (gensym))))
+      `(let (,,@(loop for g in gensyms for n in names collect ``(,,g ,,n)))
+        ,(let (,@(loop for n in names for g in gensyms collect `(,n ,g)))
+           ,@body)))))
 
-(defsubst mklist (x) (if (listp x) x (list x)))
+;; this monster was taken from http://www.gigamonkeys.com/book/macros-defining-your-own.html
+
+(declaim (inline between))
+(defun as-keyword (sym) (intern (string sym) :keyword))
+
+(declaim (inline mklist))
+(defun mklist (x) (if (listp x) x (list x)))
 
 (defun normalize-slot-spec (spec)
   (list (first spec) (mklist (second spec))))
@@ -55,11 +58,7 @@
   (let ((name (first spec)))
     `(,name :initarg ,(as-keyword name) :accessor ,name)))
 
-(defun slot->read-value (spec stream)
-  (destructuring-bind (name (type &rest args)) (normalize-slot-spec spec)
-    `(setf ,name (read-value ',type ,stream ,@args))))
-
-(defsubst bit-vector->integer (bit-vector)
+(defun bit-vector->integer (bit-vector)
   "Create a positive integer from a bit-vector."
   (reduce #'(lambda (first-bit second-bit)
               (+ (* first-bit 2) second-bit))
@@ -77,23 +76,33 @@
              ,@(mapcar #'(lambda (x) (slot->read-value x streamvar)) slots))
            ,objectvar)))))
 
-(defmethod read-value ((type (eql 'u8)) in &key (length 1))
-  (let ((memory (bytememory length)))
-    (dotimes (i length)
-      (setf (aref memory i) (read-byte in)))
-    memory))
-
+(defmethod read-value ((type (eql 'u8)) in &key length)
+  (if (null length)
+      (read-byte in)
+      (let ((memory (bytememory length)))
+	(dotimes (i length)
+	  (setf (aref memory i) (read-byte in)))
+	memory)))
+  
 (defmethod read-value ((type (eql 'string)) in &key length)
   (let ((string (make-string length)))
       (dotimes (i length)
         (setf (char string i) (code-char (read-byte in))))
       string))
 
-(defun slot->defreg-slot (slot)
-  (let ((name (first slot)))
-    `(,name :initarg ,(as-keyword name) :accessor ,name :initform 0 :type (unsigned-byte ,@(cdr slot)))))
+(defun slot->bit-accessor (classname slot position)
+  (let ((name (car slot))
+	(bit-number (cadr slot)))
+    `(progn
+       (defgeneric ,name (obj)
+	 (:method ((obj ,classname))
+	   (ldb (byte ,bit-number ,position) (reg obj))))
+       
+       (defgeneric (setf ,name) (data obj)
+	 (:method (data (obj ,classname))
+	   (setf (ldb (byte ,bit-number ,position) (reg obj)) data))))))
 
-(defsubst power (n m)
+(defun power (n m)
   (reduce #'* (loop for x below n collect m)))
 
 (defun slot->position-sum (slot position)
@@ -101,27 +110,22 @@
     `(* (,name obj) ,(power position 2))))
 
 (defmacro define-register (name slots)
-  `(progn
-    (defclass ,name ()
-      ,(mapcar #'slot->defreg-slot slots))
+  (let ((number-of-bits (loop for slot in slots sum (cadr slot))))
+    `(progn
+       (defclass ,name ()
+	 ((register :initform 0 :accessor reg :type (unsigned-byte ,number-of-bits))))
+ 
+       ,@(loop for slot in slots and position = 0 then (+ (cadr slot) position)
+	       collect (slot->bit-accessor name slot position))
     
-    (defmethod byte->reg ((obj ,name) byteword)
-      ,@(loop for slot in slots and position = 0 then (+ (cadr slot) position)
-	      collect `(setf (,(car slot) obj) (ldb (byte ,(car (cdr slot)) ,position) byteword))))
-
-    (defmethod reg->byte ((obj ,name))
-      (reduce #'+ (list ,@(loop for slot in slots and position = 0 then (+ (cadr slot) position)
-		     collect (slot->position-sum slot position)))))
-
-    (defmethod show-reg ((obj ,name))
-      ,@(loop for slot in slots
-	      collect `(progn
-			 (format t "~a : ~a" ,(string (car slot)) (,(car slot) obj))
-			 (terpri))))))
-
-(defmacro when-bit-set ((integer bits) &body body)
-  `(when (and ,@(loop for bit in (mklist bits) collect `(logbitp ,bit ,integer)))
-     ,@body))
+       (defmethod show-reg ((obj ,name))
+	 ,@(loop for slot in slots
+		 collect `(progn
+			    (format t "~a : ~a" ,(string (car slot)) (,(car slot) obj))
+			    (terpri)))))))
+(declaim (inline bit-set))
+(defun bit-set (integer &key (pos 0))
+  (logbitp pos integer))
 
 (defmacro setf&& (object integer)
   `(setf ,object (logand ,object ,integer)))
@@ -130,3 +134,17 @@
 (defmacro setf>> (object integer)
   `(setf ,object (ash ,object ,integer)))
 ;; TODO: change to once-only
+
+(defmacro with-register-bits (bit-names reg-obj &body body)
+  `(symbol-macrolet ,(mapcar #'(lambda (x) `(,x (,x ,reg-obj))) bit-names)
+        ,@body))
+
+(defun slot->def-component-slot (slot)
+  (let* ((spec (mklist slot))
+	 (name (first spec))
+	 (initform (second spec)))
+    `(,name :initarg ,(as-keyword name) :accessor ,name :initform ,initform)))
+
+(defmacro define-component (name slots)
+  `(defclass ,name ()
+     ,(mapcar #'slot->def-component-slot slots)))

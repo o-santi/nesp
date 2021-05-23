@@ -6,11 +6,12 @@
   :license  "idk"
   :version "0.0.1"
   :serial t
-  :depends-on (#:cl-6502)
+  :depends-on (#:cl-6502 #:sdl2)
   :components ((:file "package")
 	       (:file "src/utils")
-	       (:file "src/mapper")
+	       (:file "src/palette")
 	       (:file "src/cartridge")
 	       (:file "src/ppu")
+	       (:file "src/mapper")
 	       (:file "src/bus")
                (:file "nes")))

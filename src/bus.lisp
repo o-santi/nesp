@@ -17,7 +17,7 @@
       ((between address #x2000 #x3FFF) (read/ppu->cpu ppu (logand address #x0007)))
       ((between address #x4016 #x4017) ;; controllers
        (let* ((array-index (logand address #x01))
-	      (return-data (if (logbitp 7 (aref controller-state array-index)) 1 0)))
+	      (return-data (ldb (byte 1 7) (aref controller-state array-index))))
 	 (setf (aref controller-state array-index) (logand (ash (aref controller-state array-index) 1) #xFF))
 	 return-data))
       (t 0))))
@@ -48,7 +48,7 @@
     (when (eq (mod clock-counter 3) 0)
       (clock-cpu bus))
     
-    (when (eq (ppu-nmi-bit ppu) 1)
+    (when (ppu-nmi-bit ppu)
       (setf (ppu-nmi-bit ppu) nil)
       (6502:nmi cpu))
     
@@ -84,7 +84,7 @@
 
 (defun get-controller-state (bus)
   (setf (aref (bus-controller bus) 0) 0)
-  (when (sdl2:keyboard-state-p :scancode-r) (reset-component *nes*))
+  (when (sdl2:keyboard-state-p :scancode-r) (format t "reset nes") (terpri)(reset-component *nes*))
   (check-key-up :scancode-v 7) ;; A
   (check-key-up :scancode-c 6) ;; B
   (check-key-up :scancode-x 5) ;; select

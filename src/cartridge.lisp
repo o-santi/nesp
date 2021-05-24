@@ -49,12 +49,10 @@
 	(setf (pgr-banks (cartridge-mapper cart)) prog-banks) 
 	(setf (chr-banks (cartridge-mapper cart)) char-banks) 
 	(when (logbitp 3 (mapper1 header))
-	  (read-value 'string filestream :length 512)) ;; just junk, does not matter
-	;;read into it
+	  (read-value 'string filestream :length 512)) ;; just junk, does not matter for emulation
 	(setf v-prog (read-value 'u8 filestream :length (* 16384 prog-banks)))
-	;; read into it
 	(setf v-char (read-value 'u8 filestream :length (* 8192 char-banks)))
-	(setf mirror (if (eql (logand (mapper1 header) #x01) 1)
+	(setf mirror (if (logbitp 1 (mapper1 header))
 			 :vertical
 		       	 :horizontal))
       cart))))

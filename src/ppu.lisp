@@ -114,7 +114,8 @@
 			       ((between new-new-addr #x0400 #x07FF) (aref name-table 0 (logand new-new-addr #x03FF)))
 			       ((between new-new-addr #x0800 #x0BFF) (aref name-table 1 (logand new-new-addr #x03FF)))
 			       ((between new-new-addr #x0C00 #x0FFF) (aref name-table 1 (logand new-new-addr #x03FF))))))))) ;; name table memory
-	
+	;; there may be a better way to do this
+	;; but i like this parens wall
 	((between new-addr #x3F00 #x3FFF)
 	 (let ((addr (logand new-addr #x001F)))
 	   (when (eql addr #x10) (setf addr #x00))
@@ -182,19 +183,17 @@
 		     (setf address-latch 0))))) ;; scroll
 
     (#x06 (with-slots (vram tram address-latch) ppu
-	       (cond
-		 ((not (bit-set address-latch)) ;; ppu address
-		 (progn
-		   (setf (reg tram) (logior (logand (reg tram) #x00FF) (ash data 8)))
-		   (setf address-latch 1)))
-		((bit-set address-latch) ;; writing just for completion, `t` suffices
-		 (progn
-		   (setf (reg tram) (logior (logand (reg tram) #xFF00) data))
-		   (setf (reg vram) (reg tram))
-		   (setf address-latch 0))))))
-    (#x07 (progn
-	    (write/ppu->ppu ppu (reg (ppu-vram ppu)) data)
-	    (incf (reg (ppu-vram ppu)) (if (bit-set (increment-mode (ppu-control ppu))) 32 1))));; ppu data
+	    (if (not (bit-set address-latch)) ;; ppu address
+		(progn
+		  (setf (reg tram) (logior (logand (reg tram) #x00FF) (ash (logand data #x3F) 8)))
+		  (setf address-latch 1))
+		(progn
+		  (setf (reg tram) (logior (logand (reg tram) #xFF00) data))
+		  (setf (reg vram) (reg tram))
+		  (setf address-latch 0)))))
+  (#x07 (progn
+	  (write/ppu->ppu ppu (reg (ppu-vram ppu)) data)
+	  (incf (reg (ppu-vram ppu)) (if (bit-set (increment-mode (ppu-control ppu))) 32 1))));; ppu data
      ))
 
 (defun read/ppu->cpu (ppu addr)
@@ -215,9 +214,7 @@
 	    (let ((return-data data-buffer))
 	      (setf data-buffer (read/ppu->ppu ppu (reg vram)))
 	      (when (> (reg vram) #x3F00) (setf return-data data-buffer))
-	      (setf (reg vram)
-		    (+ (reg vram)
-		       (if (bit-set (increment-mode control)) 32 1)))
+	      (incf (reg vram) (if (bit-set (increment-mode control)) 32 1))
 	      return-data)))))
 
 (defun increment-scroll-x (ppu)

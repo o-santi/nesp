@@ -9,8 +9,8 @@
 (defparameter *nes* (make-instance 'bus)
   "The main memory bus (basically the whole NES)")
 
-(defvar *screen-width* (* 4 256))
-(defvar *screen-height* (* 4 240))
+(defvar *screen-width* 256)
+(defvar *screen-height* 240)
 
 (defun start-emulation (filename)
   (insert-cartridge filename *nes*)
@@ -23,22 +23,20 @@
 	do (clock bus))
   (setf (ppu-frame-complete (bus-ppu bus)) nil))
 
-(defun draw-pixels (renderer)
-  (loop for func across *pixels*
-	do (progn
-	     (funcall (first func) renderer)
-	     (funcall (second func) renderer)))
-  (setf *pixels* (make-array 0 :element-type 'function :adjustable t :fill-pointer 0)))
-
 (defparameter donkey "~/programacao/lisp/Donkey Kong (World) (Rev A).nes")
 
 (defun main ()
+  (let ((start 0))
+    (declare (optimize (speed 3) (safety 0))
+	     (type fixnum *screen-height* *screen-width*))
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :title "NesP - a lisP Nes emulator"
-                           :w *screen-width*
-                           :h *screen-height*
-			   :flags '(:shown))
+                           :w (* 4 *screen-width*)
+                           :h (* 4 *screen-height*)
+			   :flags '(:shown :resizable))
       (sdl2:with-renderer (renderer win :flags '(:accelerated))
+	(setf (ppu-renderer (bus-ppu *nes*)) renderer)
+	(sdl2-ffi.functions:sdl-render-set-logical-size renderer *screen-width* *screen-height*)
         (sdl2:with-event-loop (:method :poll)
           (:keyup
            (:keysym keysym)
@@ -46,9 +44,13 @@
              (sdl2:push-event :quit)))
           (:idle
 	   ()
+	   (setf start (sdl2:get-performance-counter))
+	   (sdl2:render-clear renderer)
 	   (get-controller-state *nes*)
 	   (run-frame *nes*)
-	   (draw-pixels renderer)
 	   (sdl2:render-present renderer)
-	   (sdl2:delay 16))
-	  (:quit () t))))))
+	   (format t "fps:~,1f~%" (/ (float (sdl2:get-performance-frequency)) (- (sdl2:get-performance-counter) start))))
+	  (:quit
+	   ()
+	   (setf (ppu-renderer (bus-ppu *nes*)) nil)
+	   t)))))))

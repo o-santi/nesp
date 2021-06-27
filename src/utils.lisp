@@ -10,10 +10,6 @@
 (deftype u8 () '(unsigned-byte 8))
 (deftype u16 () '(unsigned-byte 16))
 
-;(declaim (type (simple-vector 0) *pixels*))
-(defparameter *pixels* (make-array 0 :element-type 'list :adjustable t :fill-pointer 0)
-  "Array that holds pixel-setting functions")
-
 (defgeneric read-value (type stream &key)
   (:documentation "Read a value of the given type from the stream."))
 
@@ -58,12 +54,6 @@
   (let ((name (first spec)))
     `(,name :initarg ,(as-keyword name) :accessor ,name)))
 
-(defun bit-vector->integer (bit-vector)
-  "Create a positive integer from a bit-vector."
-  (reduce #'(lambda (first-bit second-bit)
-              (+ (* first-bit 2) second-bit))
-          bit-vector))
-
 (defmacro define-binary-class (name slots)
   (with-gensyms (typevar objectvar streamvar)
     `(progn
@@ -92,39 +82,39 @@
 
 (defun slot->bit-accessor (classname slot position)
   (let ((name (car slot))
-	(bit-number (cadr slot)))
+	(size (cadr slot)))
     `(progn
-       (defgeneric ,name (obj)
-	 (:method ((obj ,classname))
-	   (ldb (byte ,bit-number ,position) (reg obj))))
-       
-       (defgeneric (setf ,name) (data obj)
-	 (:method (data (obj ,classname))
-	   (setf (ldb (byte ,bit-number ,position) (reg obj)) data))))))
+       (declaim (ftype (function (,classname) (unsigned-byte ,size)) ,name)
+		(inline ,name))
+       (defun ,name (obj)
+	 (declare (optimize (speed 3) (safety 0))
+		  (values (unsigned-byte ,size)))
+	 (ldb (byte ,size ,position) (reg obj)))
 
-(defun power (n m)
-  (reduce #'* (loop for x below n collect m)))
-
-(defun slot->position-sum (slot position)
-  (let ((name (first slot)))
-    `(* (,name obj) ,(power position 2))))
+       (declaim (ftype (function (,classname u8))) (setf ,name)
+		(inline ,name))
+       (defun (setf ,name) (data obj)
+	 (declare (optimize (speed 3) (safety 0)))
+	 (setf (ldb (byte ,size ,position) (reg obj)) data)))))
 
 (defmacro define-register (name slots)
-  (let ((number-of-bits (loop for slot in slots sum (cadr slot))))
+  (let ((number-of-bits (loop for slot in slots sum (cadr slot)))
+	(slot-names (loop for slot in slots collect (car slot))))
     `(progn
        (defclass ,name ()
-	 ((register :initform 0 :accessor reg :type (unsigned-byte ,number-of-bits))))
- 
+	 ((register :initform 0 :accessor reg :type (unsigned-byte ,number-of-bits) :initarg :reg)))
+       
        ,@(loop for slot in slots and position = 0 then (+ (cadr slot) position)
 	       collect (slot->bit-accessor name slot position))
-    
-       (defmethod show-reg ((obj ,name))
-	 ,@(loop for slot in slots
-		 collect `(progn
-			    (format t "~a : ~a" ,(string (car slot)) (,(car slot) obj))
-			    (terpri)))))))
+	 
+       (defmethod print-object ((obj ,name) out)
+	 (print-unreadable-object (obj out :type t)
+	   (format out "~{~{~a: #~X ~}~}" (loop for slot-name in ',slot-names
+						collect (list (string slot-name) (funcall slot-name obj)))))))))
+	 
 (declaim (inline bit-set))
 (defun bit-set (integer &key (pos 0))
+  (declare (type fixnum integer))
   (logbitp pos integer))
 
 (defmacro setf&& (object integer)
@@ -137,7 +127,13 @@
 
 (defmacro with-register-bits (bit-names reg-obj &body body)
   `(symbol-macrolet ,(mapcar #'(lambda (x) `(,x (,x ,reg-obj))) bit-names)
-        ,@body))
+     ,@body))
+
+(defmacro loop-for-element-in (array &body body)
+  `(dotimes (i (length ,array))
+     (declare (type (integer 0 *) i))
+     (symbol-macrolet ((element (aref ,array i)))
+       ,@body)))
 
 (defun slot->def-component-slot (slot)
   (let* ((spec (mklist slot))
@@ -145,6 +141,18 @@
 	 (initform (second spec)))
     `(,name :initarg ,(as-keyword name) :accessor ,name :initform ,initform)))
 
-(defmacro define-component (name slots)
-  `(defclass ,name ()
-     ,(mapcar #'slot->def-component-slot slots)))
+(declaim (ftype (function (u8) u8) reverse-byte))
+(defun reverse-byte (number)
+  (declare (type u8 number)
+	   (values u8))
+  (setf number (logior (ash (logand number #xF0) -4) (ash (logand number #x0F) 4))) ;; inverts 4 first numbers
+  (setf number (logior (ash (logand number #xCC) -2) (ash (logand number #x33) 2))) ;; inverts every 2 number pair
+  (setf number (logior (ash (logand number #xAA) -1) (ash (logand number #x55) 1))) ;; inverts all single bits
+  number)
+
+(declaim (inline invert-bit))
+(defun invert-bit (bit)
+  (declare (type bit bit))
+  (logxor bit 1))
+	   
+

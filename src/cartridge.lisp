@@ -52,7 +52,7 @@
 	  (read-value 'string filestream :length 512)) ;; just junk, does not matter for emulation
 	(setf v-prog (read-value 'u8 filestream :length (* 16384 prog-banks)))
 	(setf v-char (read-value 'u8 filestream :length (* 8192 char-banks)))
-	(setf mirror (if (logbitp 1 (mapper1 header))
+	(setf mirror (if (logbitp 0 (mapper1 header))
 			 :vertical
 		       	 :horizontal))
       cart))))
